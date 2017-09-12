@@ -1,0 +1,2 @@
+# LatLngJump
+QGIS Plugin
