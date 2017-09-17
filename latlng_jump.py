@@ -47,7 +47,6 @@ class LatLngJump:
         """
         # Save reference to the QGIS interface
         self.iface = iface
-        self.canvas = self.iface.mapCanvas()
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -77,6 +76,9 @@ class LatLngJump:
 
         self.pluginIsActive = False
         self.dockwidget = None
+
+        self.canvas = self.iface.mapCanvas()
+        self.map_tool = QgsMapToolEmitPoint(self.canvas)
 
 
     # noinspection PyMethodMayBeStatic
@@ -179,6 +181,8 @@ class LatLngJump:
             callback=self.run,
             parent=self.iface.mainWindow())
 
+        self.map_tool.canvasClicked.connect(self.getClickedLatLng)
+
     #--------------------------------------------------------------------------
 
     def onClosePlugin(self):
@@ -236,14 +240,21 @@ class LatLngJump:
             self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dockwidget)
             self.dockwidget.show()
 
-            self.dockwidget.pushButton.clicked.connect(self.jumpToLatLng)
+            self.dockwidget.pushButton_Jump.clicked.connect(self.jumpToLatLng)
+            self.dockwidget.pushButton_Capture.clicked.connect(self.enableCapture)
+
+            self.dockwidget.lineEdit_Scale.setText("1:" + str(int(round(self.canvas.scale()))))
+            self.dockwidget.comboBox_EPSG.addItem("4326")
+            self.dockwidget.comboBox_EPSG.addItem("3857")
+#            self.dockwidget.comboBox_EPSG.activated[str].connect(self.selectionchange)
+
 
     #--------------------------------------------------------------------------
 
     def jumpToLatLng(self):
         # 35.1712872586,136.884219382
-        srcCRSStr = self.dockwidget.lineEdit.text()
-        srcLatLngStr = self.dockwidget.lineEdit_2.text()
+        srcCRSStr = self.dockwidget.comboBox_EPSG.currentText()
+        srcLatLngStr = self.dockwidget.lineEdit_Jump.text()
         srcLat, srcLng = re.split(r'[,|/|:|\s]+', srcLatLngStr)
 
         srcCRS = QgsCoordinateReferenceSystem(int(srcCRSStr))
@@ -255,6 +266,41 @@ class LatLngJump:
         if srcCRS != dstCRS:
             xform = QgsCoordinateTransform(srcCRS, dstCRS)
             dstLatLng = xform.transform(srcLatLng)
+        else:
+            dstLatLng = srcLatLng
+
+        if not self.dockwidget.checkBox_Scale.isChecked():
+            targetScaleStr = self.dockwidget.lineEdit_Scale.text()
+            ts_left, ts_right = targetScaleStr.split(":")
+            targetScale = float(ts_right) / float(ts_left)
+            self.canvas.zoomScale(targetScale)
 
         self.canvas.setCenter(dstLatLng)
         self.canvas.refresh()
+
+
+    def enableCapture(self):
+        self.canvas.setMapTool(self.map_tool)
+
+
+    def getClickedLatLng(self, point, button):
+        # Qt.LeftButton   0x00000001
+        # Qt.RightButton  0x00000002
+
+        if button == Qt.LeftButton:
+            canvasCRS = self.canvas.mapRenderer().destinationCrs().authid()
+            canvasCRS = canvasCRS.replace("EPSG:", "")
+
+            targetCRS = self.dockwidget.comboBox_EPSG.currentText()
+
+            srcCRS = QgsCoordinateReferenceSystem(int(canvasCRS))
+            if canvasCRS == targetCRS:
+                self.dockwidget.lineEdit_Capture.setText(str(point.y()) + ',' + str(point.x()))
+            else:
+                dstCRS = QgsCoordinateReferenceSystem(int(targetCRS))
+                xform = QgsCoordinateTransform(srcCRS, dstCRS)
+                point_2 = xform.transform(point)
+                self.dockwidget.lineEdit_Capture.setText(str(point_2.y()) + ',' + str(point_2.x()))
+        elif button == Qt.RightButton:
+            self.canvas.unsetMapTool(self.map_tool)
+            self.iface.actionPan().trigger()
