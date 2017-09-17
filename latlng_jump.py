@@ -21,7 +21,7 @@
  ***************************************************************************/
 """
 from PyQt4.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, Qt
-from PyQt4.QtGui import QAction, QIcon
+from PyQt4.QtGui import QAction, QIcon, QMessageBox
 # Initialize Qt resources from file resources.py
 import resources
 
@@ -252,31 +252,49 @@ class LatLngJump:
     #--------------------------------------------------------------------------
 
     def jumpToLatLng(self):
-        # 35.1712872586,136.884219382
-        srcCRSStr = self.dockwidget.comboBox_EPSG.currentText()
-        srcLatLngStr = self.dockwidget.lineEdit_Jump.text()
-        srcLat, srcLng = re.split(r'[,|/|:|\s]+', srcLatLngStr)
+        # Input check
+        inputStatus = True
 
-        srcCRS = QgsCoordinateReferenceSystem(int(srcCRSStr))
-        srcLatLng = QgsPoint(float(srcLng), float(srcLat))
-        canvasCRS = self.canvas.mapRenderer().destinationCrs().authid()
-        canvasCRS = canvasCRS.replace("EPSG:", "")
-        dstCRS = QgsCoordinateReferenceSystem(int(canvasCRS))
-
-        if srcCRS != dstCRS:
-            xform = QgsCoordinateTransform(srcCRS, dstCRS)
-            dstLatLng = xform.transform(srcLatLng)
-        else:
-            dstLatLng = srcLatLng
+        inputCRSStr = self.dockwidget.comboBox_EPSG.currentText()
+        if not re.match("^[1-9]\d*$", inputCRSStr):
+            inputStatus = False
 
         if not self.dockwidget.checkBox_Scale.isChecked():
             targetScaleStr = self.dockwidget.lineEdit_Scale.text()
-            ts_left, ts_right = targetScaleStr.split(":")
-            targetScale = float(ts_right) / float(ts_left)
-            self.canvas.zoomScale(targetScale)
+            if not (re.match("^([1-9]\d*|0)(\.\d+)?:([1-9]\d*|0)(\.\d+)?$", targetScaleStr) or
+                re.match("^([1-9]\d*|0)(\.\d+)$", targetScaleStr)):
+                inputStatus = False
 
-        self.canvas.setCenter(dstLatLng)
-        self.canvas.refresh()
+        targetLatLngStr = self.dockwidget.lineEdit_Jump.text()
+        if not re.match("^([-]?[1-9]\d*|0)(\.\d+)?([,|/|:|\s]+)([-]?[1-9]\d*|0)(\.\d+)?$", targetLatLngStr):
+            inputStatus = False
+
+        # Jump to targetPoint
+        if inputStatus:
+            targetLat, targetLng = re.split(r'[,|/|:|\s]+', targetLatLngStr)
+
+            inputCRS = QgsCoordinateReferenceSystem(int(inputCRSStr))
+            targetPoint = QgsPoint(float(targetLng), float(targetLat))
+            canvasCRSStr = self.canvas.mapRenderer().destinationCrs().authid()
+            canvasCRSStr = canvasCRSStr.replace("EPSG:", "")
+            canvasCRS = QgsCoordinateReferenceSystem(int(canvasCRSStr))
+
+            if inputCRS != canvasCRS:
+                xform = QgsCoordinateTransform(inputCRS, canvasCRS)
+                targetPoint = xform.transform(targetPoint)
+
+            if not self.dockwidget.checkBox_Scale.isChecked():
+                if ":" in targetScaleStr:
+                    ts_left, ts_right = targetScaleStr.split(":")
+                    targetScale = float(ts_right) / float(ts_left)
+                else:
+                    targetScale = float(targetScaleStr)
+                self.canvas.zoomScale(targetScale)
+
+            self.canvas.setCenter(targetPoint)
+            self.canvas.refresh()
+        else:
+            QMessageBox.critical(self.iface.mainWindow(), "Error", "Format error.")
 
 
     def enableCapture(self):
@@ -284,9 +302,6 @@ class LatLngJump:
 
 
     def getClickedLatLng(self, point, button):
-        # Qt.LeftButton   0x00000001
-        # Qt.RightButton  0x00000002
-
         if button == Qt.LeftButton:
             canvasCRS = self.canvas.mapRenderer().destinationCrs().authid()
             canvasCRS = canvasCRS.replace("EPSG:", "")
