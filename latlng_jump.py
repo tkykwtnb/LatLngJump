@@ -266,6 +266,7 @@ class LatLngJump:
                 inputStatus = False
 
         targetLatLngStr = self.dockwidget.lineEdit_Jump.text()
+        targetLatLngStr = targetLatLngStr.rstrip()
         if not re.match("^([-]?[1-9]\d*|0)(\.\d+)?([,|/|:|\s]+)([-]?[1-9]\d*|0)(\.\d+)?$", targetLatLngStr):
             inputStatus = False
 
